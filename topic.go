@@ -1,8 +1,11 @@
 package main
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/user"
@@ -120,6 +123,43 @@ func (cmd *topicCmd) connect() {
 		usr *user.User
 		cfg = sarama.NewConfig()
 	)
+
+	sarama.Logger = log.New(os.Stderr, "yo", log.LstdFlags)
+
+	caCerts := os.Getenv("KT_CA_CERTS")
+	if caCerts != "" {
+		cfg.Net.TLS.Enable = true
+		if cfg.Net.TLS.Config == nil {
+			cfg.Net.TLS.Config = &tls.Config{}
+		}
+
+		clientCACert, err := ioutil.ReadFile(caCerts)
+		if err != nil {
+			failf("unable to open ca file=%v", err)
+		}
+
+		cfg.Net.TLS.Config.RootCAs = x509.NewCertPool()
+		if !cfg.Net.TLS.Config.RootCAs.AppendCertsFromPEM(clientCACert) {
+			failf("no certs found in ca file")
+		}
+		cfg.Net.TLS.Config.BuildNameToCertificate()
+	}
+	clientCert := os.Getenv("KT_CLIENT_CERT")
+	clientKey := os.Getenv("KT_CLIENT_KEY")
+	if clientCert != "" || clientKey != "" {
+		cfg.Net.TLS.Enable = true
+		if cfg.Net.TLS.Config == nil {
+			cfg.Net.TLS.Config = &tls.Config{}
+		}
+
+		cert, err := tls.LoadX509KeyPair(clientCert, clientKey)
+		if err != nil {
+			failf("unable to load cert or key=%v", err)
+		}
+
+		cfg.Net.TLS.Config.Certificates = []tls.Certificate{cert}
+		cfg.Net.TLS.Config.BuildNameToCertificate()
+	}
 
 	cfg.Version = cmd.version
 
